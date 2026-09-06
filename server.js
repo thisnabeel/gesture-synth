@@ -12,6 +12,19 @@ const PORT = Number(process.env.PORT) || 4173;
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms
+      );
+    }),
+  ]);
+}
+
 function parseSearchQuery(q) {
   const raw = String(q || "").trim();
   if (!raw) return { title: "", artist: "" };
@@ -35,9 +48,13 @@ app.get("/api/songs/search", async (req, res) => {
     }
 
     const { title, artist } = parseSearchQuery(q);
-    const result = artist
-      ? await ug.search(title, artist, category.CHORDS)
-      : await ug.search(title, category.CHORDS);
+    const result = await withTimeout(
+      artist
+        ? ug.search(title, artist, category.CHORDS)
+        : ug.search(title, category.CHORDS),
+      20000,
+      "Search"
+    );
 
     if (result.status !== 200) {
       return res.status(result.status || 502).json({
@@ -83,7 +100,7 @@ app.get("/api/songs/fetch", async (req, res) => {
       return res.status(400).json({ error: "Only Ultimate Guitar tab URLs are allowed" });
     }
 
-    const fetched = await ug.fetch(url);
+    const fetched = await withTimeout(ug.fetch(url), 25000, "Fetch");
     if (fetched.status !== 200) {
       return res.status(fetched.status || 502).json({
         error: "Fetch failed",
@@ -114,13 +131,24 @@ app.get("/api/songs/fetch", async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, "dist")));
+app.use(express.static(path.join(__dirname, "dist"), { fallthrough: true }));
+
+// Always JSON for unknown API routes (never return empty / HTML for /api/*)
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
 
 app.use((req, res) => {
-  if (req.path.startsWith("/api/")) {
-    return res.status(404).json({ error: "Not found" });
-  }
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
+  res.sendFile(path.join(__dirname, "dist", "index.html"), (err) => {
+    if (err) {
+      res.status(500).type("text").send("App build missing. Run npm run build.");
+    }
+  });
+});
+
+// Keep process alive on unexpected errors during a request
+process.on("unhandledRejection", (err) => {
+  console.error("unhandledRejection", err);
 });
 
 app.listen(PORT, "0.0.0.0", () => {

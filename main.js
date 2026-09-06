@@ -713,13 +713,12 @@ function parseProgressionToken(raw) {
     const degree = ROMAN_TOKEN_TO_DEGREE[romanMatch[1].toLowerCase()];
     if (!degree) return null;
 
-    let isMinor = DIATONIC_IS_MINOR[degree];
+    // Respect written case: uppercase = major, lowercase = minor
+    let isMinor = token === token.toLowerCase();
     if (romanMatch[2]) {
       isMinor = true;
     } else if (token === token.toUpperCase()) {
       isMinor = false;
-    } else if (token === token.toLowerCase()) {
-      isMinor = true;
     }
     return { degree, isMinor };
   }
@@ -729,7 +728,8 @@ function parseProgressionToken(raw) {
 
   const degree = Number(numMatch[1]);
   const suffix = numMatch[2] || "";
-  let isMinor = DIATONIC_IS_MINOR[degree];
+  // Unmarked numbers are major; only explicit m/dim make minor
+  let isMinor = false;
   if (suffix === "m" || suffix === "dim" || suffix === "°") {
     isMinor = true;
   } else if (suffix === "M") {
@@ -920,6 +920,24 @@ function refreshLoadedSongSheet() {
   }
 }
 
+async function readApiJson(res) {
+  const text = await res.text();
+  if (!text) {
+    throw new Error(
+      res.status === 502 || res.status === 504
+        ? "Song API unavailable (empty response). If local, run npm run dev:api too."
+        : `Song API returned empty response (${res.status})`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Song API returned non-JSON (${res.status}): ${text.slice(0, 120)}`
+    );
+  }
+}
+
 async function searchSongs() {
   const q = songSearchInputEl.value.trim();
   if (!q) {
@@ -932,7 +950,7 @@ async function searchSongs() {
 
   try {
     const res = await fetch(`/api/songs/search?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
+    const data = await readApiJson(res);
     if (!res.ok) {
       throw new Error(data.message || data.error || "Search failed");
     }
@@ -980,7 +998,7 @@ async function loadSongResult(result, btnEl) {
   setSongStatus(`Loading ${result.title}…`);
   try {
     const res = await fetch(`/api/songs/fetch?url=${encodeURIComponent(result.url)}`);
-    const data = await res.json();
+    const data = await readApiJson(res);
     if (!res.ok) {
       throw new Error(data.message || data.error || "Fetch failed");
     }
