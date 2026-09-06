@@ -397,6 +397,211 @@ const MAJOR_SCALE = {
   Ab: ["Ab","Bb","C","Db","Eb","F","G"]
 };
 
+const NOTE_ALIASES = {
+  "A#": "Bb",
+  "Bb": "Bb",
+  "C#": "Db",
+  "Db": "Db",
+  "D#": "Eb",
+  "Eb": "Eb",
+  "F#": "Gb",
+  "Gb": "Gb",
+  "G#": "Ab",
+  "Ab": "Ab",
+  Cb: "B",
+  B: "B",
+  E: "E",
+  Fb: "E",
+  "E#": "F",
+  "B#": "C",
+};
+
+const CHORD_TOKEN_RE =
+  /\b([A-G](?:#|b)?)((?:maj|min|dim|aug|sus|add|m|M)?\d*(?:sus\d+)?(?:add\d+)?(?:maj\d+)?(?:min\d+)?(?:\/[A-G](?:#|b)?)?)\b/g;
+
+function normalizeNoteName(note) {
+  if (!note) return "";
+  const n = note[0].toUpperCase() + note.slice(1);
+  return NOTE_ALIASES[n] || n;
+}
+
+function parseChordSymbol(symbol) {
+  const raw = String(symbol || "").trim();
+  if (!raw) return null;
+  const cleaned = raw.replace(/^\[|\]$/g, "");
+  const match = cleaned.match(
+    /^([A-G](?:#|b)?)((?:maj|min|dim|aug|sus|add|m|M)?\d*(?:sus\d+)?(?:add\d+)?(?:maj\d+)?(?:min\d+)?)(?:\/([A-G](?:#|b)?))?$/
+  );
+  if (!match) return null;
+
+  const root = normalizeNoteName(match[1]);
+  const quality = match[2] || "";
+  const qLower = quality.toLowerCase();
+  const isMinor =
+    /(^m(?!aj)|min|dim)/.test(qLower) ||
+    qLower === "m" ||
+    /^m\d/.test(qLower);
+
+  return { symbol: cleaned, root, quality, isMinor };
+}
+
+function mapChordToDegree(symbol, keyName = currentKeyName) {
+  const parsed = parseChordSymbol(symbol);
+  if (!parsed) return null;
+
+  const scale = MAJOR_SCALE[keyName];
+  if (!scale) return null;
+
+  let degree = -1;
+  for (let i = 0; i < scale.length; i++) {
+    if (normalizeNoteName(scale[i]) === normalizeNoteName(parsed.root)) {
+      degree = i + 1;
+      break;
+    }
+  }
+
+  if (degree < 0) {
+    return { ...parsed, degree: null, inKey: false };
+  }
+
+  // Prefer explicit quality; otherwise diatonic default
+  let isMinor = parsed.isMinor;
+  if (!parsed.quality || parsed.quality === "") {
+    isMinor = DIATONIC_IS_MINOR[degree];
+  } else if (!/(^m(?!aj)|min|dim|maj|sus|aug|add|M|\d)/.test(parsed.quality)) {
+    isMinor = DIATONIC_IS_MINOR[degree];
+  }
+
+  // Explicit major qualities
+  if (/^maj/i.test(parsed.quality) || parsed.quality === "M") {
+    isMinor = false;
+  }
+
+  return {
+    symbol: parsed.symbol,
+    root: parsed.root,
+    quality: parsed.quality,
+    degree,
+    isMinor,
+    inKey: true,
+  };
+}
+
+function extractChordsFromText(text) {
+  const chords = [];
+  const lines = String(text || "").split("\n");
+
+  for (const line of lines) {
+    // Bracket style [Am]
+    const bracketRe = /\[([^\]]+)\]/g;
+    let bm;
+    let foundBracket = false;
+    while ((bm = bracketRe.exec(line)) !== null) {
+      const mapped = mapChordToDegree(bm[1]);
+      if (mapped) {
+        chords.push(mapped);
+        foundBracket = true;
+      }
+    }
+    if (foundBracket) continue;
+
+    CHORD_TOKEN_RE.lastIndex = 0;
+    let m;
+    while ((m = CHORD_TOKEN_RE.exec(line)) !== null) {
+      const mapped = mapChordToDegree(m[0]);
+      if (mapped) chords.push(mapped);
+    }
+  }
+
+  return chords;
+}
+
+function extractProgressionFromChords(mappedChords) {
+  const steps = [];
+  for (const c of mappedChords) {
+    if (!c.inKey || !c.degree) continue;
+    const prev = steps[steps.length - 1];
+    if (prev && prev.degree === c.degree && prev.isMinor === c.isMinor) {
+      continue; // collapse immediate repeats
+    }
+    steps.push({ degree: c.degree, isMinor: c.isMinor });
+  }
+  return steps;
+}
+
+function chordTokenHtml(symbol) {
+  const mapped = mapChordToDegree(symbol);
+  if (!mapped || !mapped.inKey || !mapped.degree) {
+    return `<span class="sheet-chord sheet-chord-unknown">${escapeHtml(symbol)}</span>`;
+  }
+  return `<span class="sheet-chord" title="${escapeHtml(mapped.symbol)} → ${mapped.degree}${mapped.isMinor ? "m" : ""}">
+    <span class="sheet-chord-icon">${gestureIconHtml(mapped.degree, mapped.isMinor)}</span>
+    <span class="sheet-chord-name">${escapeHtml(mapped.symbol)}</span>
+  </span>`;
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderAnnotatedSheet(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  return lines
+    .map((line) => {
+      if (!line.trim()) return `<div class="sheet-line sheet-blank">&nbsp;</div>`;
+
+      // Replace [Chord] first
+      let html = escapeHtml(line);
+      html = html.replace(/\[([^\]]+)\]/g, (_, chord) => chordTokenHtml(chord));
+
+      // Replace bare chord tokens (on lines that look chord-heavy or always)
+      // Work on original for matching, rebuild carefully
+      const parts = [];
+      let last = 0;
+      const re = new RegExp(CHORD_TOKEN_RE.source, "g");
+      const raw = line;
+      let m;
+      const matches = [];
+      while ((m = re.exec(raw)) !== null) {
+        // Skip if this looks like a word mid-lyric (lowercase around) — chords are Title case roots
+        matches.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+      }
+
+      if (matches.length === 0) {
+        return `<div class="sheet-line">${escapeHtml(line).replace(/\[([^\]]+)\]/g, (_, c) => chordTokenHtml(c))}</div>`;
+      }
+
+      // Heuristic: if line is mostly chords (few lowercase letters), annotate all
+      const letters = (line.match(/[a-zA-Z]/g) || []).length;
+      const lower = (line.match(/[a-z]/g) || []).length;
+      const chordHeavy = letters === 0 || lower / letters < 0.35 || matches.length >= 2;
+
+      if (!chordHeavy && !/\[[^\]]+\]/.test(line)) {
+        return `<div class="sheet-line sheet-lyric">${escapeHtml(line)}</div>`;
+      }
+
+      let out = "";
+      let idx = 0;
+      for (const match of matches) {
+        out += escapeHtml(raw.slice(idx, match.start));
+        out += chordTokenHtml(match.text);
+        idx = match.end;
+      }
+      out += escapeHtml(raw.slice(idx));
+      // Also handle brackets that weren't escaped as tokens
+      out = out.replace(/\[([^\]]+)\]/g, (_, chord) => {
+        // already escaped brackets become literal — redo from raw if needed
+        return chordTokenHtml(chord);
+      });
+      return `<div class="sheet-line">${out}</div>`;
+    })
+    .join("");
+}
+
 function updateGestureGuide() {
   if (!gestureGuideEl) return;
 
@@ -633,6 +838,228 @@ progressionInputEl.addEventListener("keydown", (e) => {
   e.stopPropagation();
 });
 
+// ---- Song search panel (Ultimate Guitar + paste) ----
+const songSearchButtonEl = document.getElementById("songSearchButton");
+const songPanelEl = document.getElementById("songPanel");
+const closeSongPanelEl = document.getElementById("closeSongPanel");
+const songSearchInputEl = document.getElementById("songSearchInput");
+const songSearchGoEl = document.getElementById("songSearchGo");
+const songStatusEl = document.getElementById("songStatus");
+const songResultsEl = document.getElementById("songResults");
+const songSheetEl = document.getElementById("songSheet");
+const songSheetMetaEl = document.getElementById("songSheetMeta");
+const songSetKeyBtnEl = document.getElementById("songSetKeyBtn");
+const songUseProgressionBtnEl = document.getElementById("songUseProgressionBtn");
+const songPasteAreaEl = document.getElementById("songPasteArea");
+const songPasteApplyEl = document.getElementById("songPasteApply");
+
+let loadedSong = null; // { title, artist, key, url, content }
+
+function setSongStatus(msg) {
+  songStatusEl.textContent = msg || "";
+}
+
+function openSongPanel() {
+  songPanelEl.classList.remove("hidden");
+  songSearchInputEl.focus();
+}
+
+function closeSongPanel() {
+  songPanelEl.classList.add("hidden");
+}
+
+function applySongContent(meta) {
+  loadedSong = meta;
+  const title = meta.title || "Song";
+  const artist = meta.artist || "";
+  const key = meta.key || "";
+  songSheetMetaEl.textContent = [title, artist, key ? `Key: ${key}` : ""]
+    .filter(Boolean)
+    .join(" — ");
+
+  songSheetEl.innerHTML = renderAnnotatedSheet(meta.content || "");
+
+  if (key) {
+    songSetKeyBtnEl.textContent = `Set key to ${key}`;
+    songSetKeyBtnEl.classList.remove("hidden");
+    songSetKeyBtnEl.dataset.key = key;
+  } else {
+    songSetKeyBtnEl.classList.add("hidden");
+    delete songSetKeyBtnEl.dataset.key;
+  }
+
+  const mapped = extractChordsFromText(meta.content || "");
+  const steps = extractProgressionFromChords(mapped);
+  if (steps.length) {
+    songUseProgressionBtnEl.classList.remove("hidden");
+    songUseProgressionBtnEl.dataset.steps = JSON.stringify(steps);
+    // Auto-fill practice progression
+    applySongProgression(steps);
+  } else {
+    songUseProgressionBtnEl.classList.add("hidden");
+    delete songUseProgressionBtnEl.dataset.steps;
+  }
+}
+
+function applySongProgression(steps) {
+  currentProgression = steps.slice();
+  progressionIndex = 0;
+  lastHighlightedProgressionIndex = -1;
+  updateProgressionGuide();
+  setSongStatus(`Progression loaded (${steps.length} chords) for key ${currentKeyName}`);
+}
+
+function refreshLoadedSongSheet() {
+  if (!loadedSong?.content) return;
+  songSheetEl.innerHTML = renderAnnotatedSheet(loadedSong.content);
+  const mapped = extractChordsFromText(loadedSong.content);
+  const steps = extractProgressionFromChords(mapped);
+  if (steps.length) {
+    songUseProgressionBtnEl.classList.remove("hidden");
+    songUseProgressionBtnEl.dataset.steps = JSON.stringify(steps);
+  }
+}
+
+async function searchSongs() {
+  const q = songSearchInputEl.value.trim();
+  if (!q) {
+    setSongStatus("Enter a song name");
+    return;
+  }
+
+  setSongStatus("Searching Ultimate Guitar…");
+  songResultsEl.innerHTML = "";
+
+  try {
+    const res = await fetch(`/api/songs/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || "Search failed");
+    }
+
+    const results = data.results || [];
+    if (!results.length) {
+      setSongStatus("No chord charts found — try paste below");
+      return;
+    }
+
+    setSongStatus(`${results.length} charts found`);
+    songResultsEl.innerHTML = results
+      .map(
+        (r, i) => `
+        <button type="button" class="song-result" data-index="${i}">
+          <div>${escapeHtml(r.title)} — ${escapeHtml(r.artist)}</div>
+          <div class="song-result-meta">
+            ${r.key ? `Key ${escapeHtml(r.key)} · ` : ""}v${r.version ?? "?"}
+            ${r.rating != null ? ` · ★ ${Number(r.rating).toFixed(1)}` : ""}
+            ${r.difficulty ? ` · ${escapeHtml(r.difficulty)}` : ""}
+          </div>
+        </button>`
+      )
+      .join("");
+
+    songResultsEl.querySelectorAll(".song-result").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.index);
+        loadSongResult(results[idx], btn);
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    setSongStatus(`Search failed: ${err.message}. You can paste a chart below.`);
+  }
+}
+
+async function loadSongResult(result, btnEl) {
+  if (!result?.url) return;
+
+  songResultsEl.querySelectorAll(".song-result").forEach((el) => {
+    el.classList.toggle("active", el === btnEl);
+  });
+
+  setSongStatus(`Loading ${result.title}…`);
+  try {
+    const res = await fetch(`/api/songs/fetch?url=${encodeURIComponent(result.url)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || "Fetch failed");
+    }
+
+    applySongContent({
+      title: data.title || result.title,
+      artist: data.artist || result.artist,
+      key: data.key || result.key || "",
+      url: result.url,
+      content: data.content || "",
+    });
+    setSongStatus("Chart loaded");
+  } catch (err) {
+    console.error(err);
+    setSongStatus(`Fetch failed: ${err.message}. Paste the chart below.`);
+  }
+}
+
+function setKeyFromSong(keyRaw) {
+  const root = normalizeNoteName(String(keyRaw || "").replace(/m$/i, "").trim());
+  // Find matching option by data-note
+  const options = Array.from(keySelectEl.options);
+  let match = options.find((o) => o.dataset.note === root);
+  if (!match) {
+    // Try reverse alias (Gb vs F#)
+    const reverse = Object.entries(NOTE_ALIASES).find(([, v]) => v === root)?.[0];
+    match = options.find((o) => o.dataset.note === reverse || o.dataset.note === keyRaw);
+  }
+  if (!match) {
+    // Match label contains
+    match = options.find((o) => o.textContent.includes(root) || o.textContent.includes(keyRaw));
+  }
+  if (!match) {
+    setSongStatus(`Could not map key ${keyRaw} to selector`);
+    return;
+  }
+  keySelectEl.value = match.value;
+  keySelectEl.dispatchEvent(new Event("change"));
+  setSongStatus(`Key set to ${match.dataset.note}`);
+}
+
+songSearchButtonEl.addEventListener("click", openSongPanel);
+closeSongPanelEl.addEventListener("click", closeSongPanel);
+songPanelEl.addEventListener("click", (e) => {
+  if (e.target === songPanelEl) closeSongPanel();
+});
+songSearchGoEl.addEventListener("click", searchSongs);
+songSearchInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    searchSongs();
+  }
+  e.stopPropagation();
+});
+songUseProgressionBtnEl.addEventListener("click", () => {
+  try {
+    const steps = JSON.parse(songUseProgressionBtnEl.dataset.steps || "[]");
+    if (steps.length) applySongProgression(steps);
+  } catch {}
+});
+songSetKeyBtnEl.addEventListener("click", () => {
+  if (songSetKeyBtnEl.dataset.key) setKeyFromSong(songSetKeyBtnEl.dataset.key);
+});
+songPasteApplyEl.addEventListener("click", () => {
+  const content = songPasteAreaEl.value.trim();
+  if (!content) {
+    setSongStatus("Paste a chord sheet first");
+    return;
+  }
+  applySongContent({
+    title: "Pasted chart",
+    artist: "",
+    key: loadedSong?.key || "",
+    url: "",
+    content,
+  });
+  setSongStatus("Pasted chart applied");
+});
+
 // ---- Chord -> note frequencies ----
 // Semitone offset of each scale degree from the tonic, in a major scale.
 // This stays fixed -- what changes is which frequency counts as "0".
@@ -656,6 +1083,7 @@ let currentKeyName =
 
   updateGestureGuide();
   updateProgressionGuide();
+  refreshLoadedSongSheet();
 
 });
 
@@ -753,6 +1181,7 @@ window.addEventListener("keydown", (e) => {
   const tag = e.target && e.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (progressionInputEl && !progressionInputEl.classList.contains("hidden")) return;
+  if (songPanelEl && !songPanelEl.classList.contains("hidden")) return;
 
   // Prevent page scroll and Space-activated button click (would double-count)
   e.preventDefault();

@@ -209,6 +209,226 @@ html, body {
   padding: 4px 10px;
   cursor: pointer;
 }
+#songSearchButton {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+#songPanel.hidden {
+  display: none;
+}
+#songPanel {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  z-index: 25;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.song-panel-content {
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #e8a13d;
+  border-radius: 10px;
+  font-family: monospace;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.song-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.song-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #e8a13d;
+}
+#closeSongPanel {
+  background: none;
+  border: none;
+  color: #e8a13d;
+  font-size: 20px;
+  cursor: pointer;
+}
+.song-search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+#songSearchInput {
+  flex: 1;
+  background: #111;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 8px 10px;
+  outline: none;
+}
+#songSearchInput:focus {
+  border-color: #e8a13d;
+}
+#songSearchGo,
+#songPasteApply,
+#songSetKeyBtn,
+#songUseProgressionBtn {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#songSearchGo:hover,
+#songPasteApply:hover,
+#songSetKeyBtn:hover,
+#songUseProgressionBtn:hover {
+  border-color: #e8a13d;
+}
+#songStatus {
+  font-size: 12px;
+  color: #c4a574;
+  min-height: 16px;
+  margin-bottom: 8px;
+}
+#songResults {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.song-result {
+  text-align: left;
+  background: #111;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.song-result:hover,
+.song-result.active {
+  border-color: #e8a13d;
+  background: #2a2418;
+}
+.song-result-meta {
+  color: #c4a574;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.song-sheet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+#songSheetMeta {
+  flex: 1;
+  font-size: 13px;
+  color: #ffbf5c;
+}
+#songSheet {
+  flex: 1;
+  overflow-y: auto;
+  background: #111;
+  border: 1px solid #3a3428;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.sheet-line {
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sheet-lyric {
+  color: #d8c3a0;
+}
+.sheet-blank {
+  height: 0.7em;
+}
+.sheet-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+  margin: 0 4px 2px 0;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(232, 161, 61, 0.12);
+  border: 1px solid #3a3428;
+}
+.sheet-chord-unknown {
+  color: #c4a574;
+  background: transparent;
+}
+.sheet-chord-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sheet-chord-icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.sheet-chord-name {
+  color: #ffbf5c;
+  font-weight: bold;
+}
+#songPasteArea {
+  width: 100%;
+  min-height: 80px;
+  margin-top: 8px;
+  background: #111;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+#songPasteArea:focus {
+  border-color: #e8a13d;
+  outline: none;
+}
+.song-paste-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
 #progressionInput {
   position: absolute;
   top: 164px;
@@ -472,6 +692,7 @@ html, body {
 <div id="guideRow">
   <button id="guideToggle">Open Guide</button>
   <button id="progressionAddButton" type="button" title="Add progression reference">+</button>
+  <button id="songSearchButton" type="button" title="Search songs for chords">Songs</button>
 </div>
 <input
   id="progressionInput"
@@ -483,6 +704,31 @@ html, body {
 />
 <div id="progressionGuide" class="hidden"></div>
 <div id="gestureGuide" class="hidden"></div>
+
+  <div id="songPanel" class="hidden">
+    <div class="song-panel-content">
+      <div class="song-panel-header">
+        <h2>Song Chords</h2>
+        <button id="closeSongPanel" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="song-search-row">
+        <input id="songSearchInput" type="search" placeholder="Search song or song - artist" autocomplete="off" />
+        <button id="songSearchGo" type="button">Search</button>
+      </div>
+      <div id="songStatus"></div>
+      <div id="songResults"></div>
+      <div class="song-sheet-toolbar">
+        <div id="songSheetMeta"></div>
+        <button id="songSetKeyBtn" type="button" class="hidden">Set key</button>
+        <button id="songUseProgressionBtn" type="button" class="hidden">Use progression</button>
+      </div>
+      <div id="songSheet"></div>
+      <div class="song-paste-row">
+        <textarea id="songPasteArea" placeholder="Paste a chord sheet here if search fails..."></textarea>
+        <button id="songPasteApply" type="button">Paste</button>
+      </div>
+    </div>
+  </div>
   <div id="qualityDisplay">--</div>
   <div id="distortionDisplay">Filter: 0%</div>
 
@@ -515,6 +761,9 @@ html, body {
       5 → V<br>
       Index + Pinky → VI<br>
       Index + Pinky + Thumb → VII</p>
+
+      <p><b>Songs</b><br>
+      Search Ultimate Guitar for a chord chart, or paste one in. Chords show hand icons for the current key, and the progression practice list can be filled automatically.</p>
 
       <p><b>Progression (+)</b><br>
       Type Nashville numbers like 6-4-1-5 for a practice cheat sheet of left-hand gestures. Minor degrees show an outward tilt cue. While a progression is open, left-hand detection snaps to the nearest step and prefers the next chord when you switch.</p>
