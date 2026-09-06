@@ -639,12 +639,16 @@ const ROMAN_TOKEN_TO_DEGREE = {
 };
 
 const progressionAddButtonEl = document.getElementById("progressionAddButton");
+const progressionInputRowEl = document.getElementById("progressionInputRow");
 const progressionInputEl = document.getElementById("progressionInput");
+const progressionApplyButtonEl = document.getElementById("progressionApplyButton");
+const progressionClearButtonEl = document.getElementById("progressionClearButton");
 const progressionGuideEl = document.getElementById("progressionGuide");
 
 let currentProgression = [];
 let progressionIndex = 0;
 let lastHighlightedProgressionIndex = -1;
+let progressionInputPinned = false;
 
 function progressionStepToChord(step) {
   const roman = ROMAN_MAJOR[step.degree - 1];
@@ -656,28 +660,60 @@ function degreeDistance(a, b) {
   return Math.min(d, 7 - d);
 }
 
-function snapToProgression(detectedChord) {
+function snapToProgression(detectedChord, detectedIsMajor = true) {
   if (!currentProgression.length || !detectedChord) return null;
 
   const detectedDegree =
     NUMERAL_TO_DEGREE[detectedChord.toUpperCase()];
   if (!detectedDegree) return null;
 
-  const nextIndex =
-    (progressionIndex + 1) % currentProgression.length;
+  const detectedMinor = !detectedIsMajor;
+  const len = currentProgression.length;
+  const nextIndex = (progressionIndex + 1) % len;
+  const prevIndex = (progressionIndex - 1 + len) % len;
 
-  // Sticky on current chord; make the next step easier to land on
-  // than jumping elsewhere in the progression.
-  const STICKY = 0.85;
-  const NEXT_BIAS = 0.45;
+  // Sticky only when current step fully matches (degree + major/minor).
+  // Otherwise tilt can flip I ↔ i / 3 ↔ 3m without fighting sticky.
+  const STICKY = 0.9;
+  const NEXT_BIAS = 0.5;
+  const PREV_BIAS = 0.45;
+  const QUALITY_MISMATCH = 0.75;
+  const NEIGHBOR_QUALITY_BONUS = 0.35;
 
   let bestIndex = progressionIndex;
   let bestScore = Infinity;
 
   currentProgression.forEach((step, i) => {
     let score = degreeDistance(detectedDegree, step.degree);
-    if (i === progressionIndex) score -= STICKY;
+    if (step.isMinor !== detectedMinor) {
+      score += QUALITY_MISMATCH;
+    }
+
+    const fullyMatches =
+      step.degree === detectedDegree && step.isMinor === detectedMinor;
+
+    if (i === progressionIndex && fullyMatches) {
+      score -= STICKY;
+    }
+
     if (i === nextIndex) score -= NEXT_BIAS;
+    if (i === prevIndex) score -= PREV_BIAS;
+
+    // Same finger degree, matching tilt — prefer adjacent guide steps (1m ↔ 1)
+    if (
+      fullyMatches &&
+      (i === nextIndex || i === prevIndex)
+    ) {
+      score -= NEIGHBOR_QUALITY_BONUS;
+    }
+
+    // Prefer nearer steps when jumping to a quality match elsewhere
+    const ringDist = Math.min(
+      Math.abs(i - progressionIndex),
+      len - Math.abs(i - progressionIndex)
+    );
+    score += ringDist * 0.12;
+
     if (score < bestScore) {
       bestScore = score;
       bestIndex = i;
@@ -786,45 +822,81 @@ function updateProgressionGuide() {
   progressionGuideEl.classList.remove("hidden");
   progressionGuideEl.classList.toggle(
     "input-open",
-    !progressionInputEl.classList.contains("hidden")
+    progressionInputPinned || !progressionInputRowEl.classList.contains("hidden")
   );
 }
 
-function openProgressionInput() {
-  progressionInputEl.classList.remove("hidden");
-  progressionGuideEl.classList.add("input-open");
-  if (!progressionInputEl.value.trim() && currentProgression.length) {
-    progressionInputEl.value = currentProgression
-      .map(({ degree, isMinor }) => `${degree}${isMinor ? "m" : ""}`)
-      .join("-");
-  }
-  progressionInputEl.focus();
-  progressionInputEl.select();
+function syncProgressionInputValue() {
+  if (!currentProgression.length) return;
+  progressionInputEl.value = currentProgression
+    .map(({ degree, isMinor }) => `${degree}${isMinor ? "m" : ""}`)
+    .join("-");
 }
 
-function closeProgressionInput() {
-  progressionInputEl.classList.add("hidden");
+function showProgressionInputRow({ focus = false, select = false } = {}) {
+  progressionInputRowEl.classList.remove("hidden");
+  progressionGuideEl.classList.add("input-open");
+  if (focus) {
+    progressionInputEl.focus();
+    if (select) progressionInputEl.select();
+  }
+}
+
+function openProgressionInput() {
+  showProgressionInputRow({ focus: true, select: true });
+  if (!progressionInputEl.value.trim() && currentProgression.length) {
+    syncProgressionInputValue();
+  }
+}
+
+function hideProgressionInputRow() {
+  progressionInputRowEl.classList.add("hidden");
   progressionGuideEl.classList.remove("input-open");
+  progressionInputPinned = false;
 }
 
 function applyProgressionFromInput() {
-  const parsed = parseProgression(progressionInputEl.value);
+  const raw = progressionInputEl.value.trim();
+  const parsed = parseProgression(raw);
   currentProgression = parsed;
   progressionIndex = 0;
   lastHighlightedProgressionIndex = -1;
   updateProgressionGuide();
-  closeProgressionInput();
-  if (!parsed.length) {
+
+  if (parsed.length) {
+    progressionInputPinned = true;
+    progressionInputEl.value = raw;
+    showProgressionInputRow();
+  } else {
     progressionInputEl.value = "";
+    hideProgressionInputRow();
   }
 }
 
+function clearProgression() {
+  currentProgression = [];
+  progressionIndex = 0;
+  lastHighlightedProgressionIndex = -1;
+  progressionInputEl.value = "";
+  progressionInputPinned = false;
+  updateProgressionGuide();
+  hideProgressionInputRow();
+}
+
 progressionAddButtonEl.addEventListener("click", () => {
-  if (progressionInputEl.classList.contains("hidden")) {
+  if (progressionInputRowEl.classList.contains("hidden")) {
     openProgressionInput();
   } else {
-    applyProgressionFromInput();
+    progressionInputEl.focus();
   }
+});
+
+progressionApplyButtonEl.addEventListener("click", () => {
+  applyProgressionFromInput();
+});
+
+progressionClearButtonEl.addEventListener("click", () => {
+  clearProgression();
 });
 
 progressionInputEl.addEventListener("keydown", (e) => {
@@ -833,7 +905,11 @@ progressionInputEl.addEventListener("keydown", (e) => {
     applyProgressionFromInput();
   } else if (e.key === "Escape") {
     e.preventDefault();
-    closeProgressionInput();
+    if (!progressionInputPinned && !currentProgression.length) {
+      hideProgressionInputRow();
+    } else {
+      progressionInputEl.blur();
+    }
   }
   e.stopPropagation();
 });
@@ -905,6 +981,9 @@ function applySongProgression(steps) {
   currentProgression = steps.slice();
   progressionIndex = 0;
   lastHighlightedProgressionIndex = -1;
+  progressionInputPinned = true;
+  syncProgressionInputValue();
+  showProgressionInputRow();
   updateProgressionGuide();
   setSongStatus(`Progression loaded (${steps.length} chords) for key ${currentKeyName}`);
 }
@@ -1198,7 +1277,7 @@ window.addEventListener("keydown", (e) => {
 
   const tag = e.target && e.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-  if (progressionInputEl && !progressionInputEl.classList.contains("hidden")) return;
+  if (progressionInputRowEl && !progressionInputRowEl.classList.contains("hidden") && document.activeElement === progressionInputEl) return;
   if (songPanelEl && !songPanelEl.classList.contains("hidden")) return;
 
   // Prevent page scroll and Space-activated button click (would double-count)
@@ -1730,7 +1809,7 @@ if (cachedLeftLandmarks) {
   // With a progression guide, snap left-hand detection to the nearest
   // step and prefer advancing to the next chord when you move that way.
   if (rawChord && currentProgression.length) {
-    const snapped = snapToProgression(rawChord);
+    const snapped = snapToProgression(rawChord, rawMode);
     if (snapped) {
       rawChord = snapped.chord;
       rawMode = snapped.isMajorMode;
