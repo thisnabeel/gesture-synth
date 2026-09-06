@@ -125,11 +125,70 @@ html, body {
   padding: 4px 8px;
   z-index: 5;
 }
-
-#guideToggle {
+#playStyleRow {
   position: absolute;
-  top: 90px;
+  top: 84px;
   left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 5;
+}
+#playStyleSelect {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+#bpmTapButton {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 4px 10px;
+  cursor: pointer;
+  min-width: 72px;
+  white-space: nowrap;
+}
+#bpmTapButton:active {
+  background: #2a2418;
+  border-color: #e8a13d;
+}
+#voicingLockButton {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+#voicingLockButton.locked {
+  background: #e8a13d;
+  border-color: #ffbf5c;
+  color: #1a1a1a;
+  font-weight: bold;
+  box-shadow: 0 0 0 1px rgba(232, 161, 61, 0.35), 0 0 12px rgba(232, 161, 61, 0.45);
+}
+
+#guideRow {
+  position: absolute;
+  top: 126px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 5;
+}
+#guideToggle {
   background: #1a1a1a;
   color: #e8a13d;
   border: 1px solid #3a3428;
@@ -138,12 +197,102 @@ html, body {
   font-size: 14px;
   padding: 4px 8px;
   cursor: pointer;
+}
+#progressionAddButton {
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+#progressionInput {
+  position: absolute;
+  top: 164px;
+  left: 12px;
+  width: min(220px, calc(100vw - 24px));
+  background: #1a1a1a;
+  color: #e8a13d;
+  border: 1px solid #3a3428;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 6px 8px;
   z-index: 5;
+  outline: none;
+}
+#progressionInput:focus {
+  border-color: #e8a13d;
+}
+#progressionInput.hidden {
+  display: none;
+}
+#progressionGuide {
+  position: absolute;
+  top: 164px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+  font-family: monospace;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(20,20,20,0.85), rgba(20,20,20,0.55));
+  min-width: 140px;
+}
+#progressionGuide.hidden {
+  display: none;
+}
+#progressionGuide.input-open {
+  top: 202px;
+}
+.progression-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e8a13d;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.progression-row.active {
+  background: rgba(232, 161, 61, 0.18);
+  border-color: #e8a13d;
+  color: #ffbf5c;
+}
+.progression-gesture {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.progression-gesture img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  display: block;
+}
+.progression-label {
+  font-size: 14px;
+  min-width: 48px;
+}
+.progression-tilt {
+  font-size: 12px;
+  color: #c4a574;
+  white-space: nowrap;
 }
 
 #gestureGuide {
   position: absolute;
-  top: 128px;
+  top: 164px;
   left: 12px;
   display: flex;
   flex-direction: column;
@@ -173,6 +322,18 @@ html, body {
 
 .gesture-guide-gesture {
   font-size: 20px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gesture-guide-gesture img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  display: block;
 }
 #chordDisplay {
   position: absolute;
@@ -300,7 +461,27 @@ html, body {
   <option value="sawtooth">Bright Synth</option>
   <option value="square">Retro Synth</option>
 </select>
-<button id="guideToggle">Open Guide</button>
+<div id="playStyleRow">
+  <select id="playStyleSelect">
+    <option value="chord" selected>Chord</option>
+    <option value="arp">Arpeggio</option>
+  </select>
+  <button id="bpmTapButton" type="button" title="Tap tempo for arpeggio speed">TAP</button>
+  <button id="voicingLockButton" type="button" title="Lock -8ve voicing; left hand controls volume">Lock -8ve</button>
+</div>
+<div id="guideRow">
+  <button id="guideToggle">Open Guide</button>
+  <button id="progressionAddButton" type="button" title="Add progression reference">+</button>
+</div>
+<input
+  id="progressionInput"
+  class="hidden"
+  type="text"
+  placeholder="e.g. 6-4-1-5"
+  autocomplete="off"
+  spellcheck="false"
+/>
+<div id="progressionGuide" class="hidden"></div>
 <div id="gestureGuide" class="hidden"></div>
   <div id="qualityDisplay">--</div>
   <div id="distortionDisplay">Filter: 0%</div>
@@ -335,12 +516,21 @@ html, body {
       Index + Pinky → VI<br>
       Index + Pinky + Thumb → VII</p>
 
+      <p><b>Progression (+)</b><br>
+      Type Nashville numbers like 6-4-1-5 for a practice cheat sheet of left-hand gestures. Minor degrees show an outward tilt cue. While a progression is open, left-hand detection snaps to the nearest step and prefers the next chord when you switch.</p>
+
       <h3>Right Hand</h3>
       <p><b>Fingers (Chord Quality)</b><br>
       1 → Root Position<br>
       2 → 1st Inversion<br>
       3 → Major/Minor 7th<br>
       4 → Dominant/Diminished 7th</p>
+
+      <p><b>Play Style</b><br>
+      Chord → solid voicing<br>
+      Arpeggio → notes cycle upward through the current voicing at the tapped BPM<br>
+      TAP → tap the button or Space for arpeggio BPM (one note per beat)<br>
+      Lock -8ve → pin root-position octave-down voicing; left hand height controls volume</p>
 
       <p><b>Octave</b><br>
       Thumb In → higher octave<br>

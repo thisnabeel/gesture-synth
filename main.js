@@ -364,15 +364,22 @@ async function setupHandLandmarker() {
   });
 }
 
-// ADD THIS
+function gestureIconHtml(degree, isMinor = false) {
+  if (degree >= 1 && degree <= 7) {
+    const quality = isMinor ? "minor" : "major";
+    return `<img src="/gestures/${degree}-${quality}.png" alt="degree ${degree}" draggable="false" />`;
+  }
+  return "";
+}
+
 const GESTURE_GUIDE = [
-  { degree: 1, gesture: "1️⃣" },
-  { degree: 2, gesture: "2️⃣" },
-  { degree: 3, gesture: "3️⃣" },
-  { degree: 4, gesture: "4️⃣" },
-  { degree: 5, gesture: "5️⃣" },
-  { degree: 6, gesture: "🤘" },
-  { degree: 7, gesture: "🤟" }
+  { degree: 1 },
+  { degree: 2 },
+  { degree: 3 },
+  { degree: 4 },
+  { degree: 5 },
+  { degree: 6 },
+  { degree: 7 },
 ];
 
 const MAJOR_SCALE = {
@@ -396,19 +403,235 @@ function updateGestureGuide() {
   const scale = MAJOR_SCALE[currentKeyName];
 
   gestureGuideEl.innerHTML = GESTURE_GUIDE
-    .map(({ degree, gesture }) => `
+    .map(({ degree }) => `
       <div class="gesture-guide-row">
         <span class="gesture-guide-note">
           ${scale[degree - 1]}
         </span>
 
         <span class="gesture-guide-gesture">
-          ${gesture}
+          ${gestureIconHtml(degree, false)}
         </span>
       </div>
     `)
     .join("");
 }
+
+// Unmarked Nashville numbers in a major key → diatonic major/minor
+const DIATONIC_IS_MINOR = {
+  1: false,
+  2: true,
+  3: true,
+  4: false,
+  5: false,
+  6: true,
+  7: true,
+};
+
+const ROMAN_MAJOR = ["I", "II", "III", "IV", "V", "VI", "VII"];
+const ROMAN_TOKEN_TO_DEGREE = {
+  i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7,
+};
+
+const progressionAddButtonEl = document.getElementById("progressionAddButton");
+const progressionInputEl = document.getElementById("progressionInput");
+const progressionGuideEl = document.getElementById("progressionGuide");
+
+let currentProgression = [];
+let progressionIndex = 0;
+let lastHighlightedProgressionIndex = -1;
+
+function progressionStepToChord(step) {
+  const roman = ROMAN_MAJOR[step.degree - 1];
+  return step.isMinor ? roman.toLowerCase() : roman;
+}
+
+function degreeDistance(a, b) {
+  const d = Math.abs(a - b);
+  return Math.min(d, 7 - d);
+}
+
+function snapToProgression(detectedChord) {
+  if (!currentProgression.length || !detectedChord) return null;
+
+  const detectedDegree =
+    NUMERAL_TO_DEGREE[detectedChord.toUpperCase()];
+  if (!detectedDegree) return null;
+
+  const nextIndex =
+    (progressionIndex + 1) % currentProgression.length;
+
+  // Sticky on current chord; make the next step easier to land on
+  // than jumping elsewhere in the progression.
+  const STICKY = 0.85;
+  const NEXT_BIAS = 0.45;
+
+  let bestIndex = progressionIndex;
+  let bestScore = Infinity;
+
+  currentProgression.forEach((step, i) => {
+    let score = degreeDistance(detectedDegree, step.degree);
+    if (i === progressionIndex) score -= STICKY;
+    if (i === nextIndex) score -= NEXT_BIAS;
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  });
+
+  progressionIndex = bestIndex;
+  const step = currentProgression[progressionIndex];
+
+  return {
+    chord: progressionStepToChord(step),
+    isMajorMode: !step.isMinor,
+  };
+}
+
+function highlightProgressionStep() {
+  if (!progressionGuideEl || !currentProgression.length) return;
+  if (progressionIndex === lastHighlightedProgressionIndex) return;
+
+  const rows = progressionGuideEl.querySelectorAll(".progression-row");
+  rows.forEach((row, i) => {
+    row.classList.toggle("active", i === progressionIndex);
+  });
+  lastHighlightedProgressionIndex = progressionIndex;
+}
+
+function parseProgressionToken(raw) {
+  const token = String(raw || "").trim();
+  if (!token) return null;
+
+  const romanMatch = token.match(/^(vii|vi|v|iv|iii|ii|i)(°|dim)?$/i);
+  if (romanMatch) {
+    const degree = ROMAN_TOKEN_TO_DEGREE[romanMatch[1].toLowerCase()];
+    if (!degree) return null;
+
+    let isMinor = DIATONIC_IS_MINOR[degree];
+    if (romanMatch[2]) {
+      isMinor = true;
+    } else if (token === token.toUpperCase()) {
+      isMinor = false;
+    } else if (token === token.toLowerCase()) {
+      isMinor = true;
+    }
+    return { degree, isMinor };
+  }
+
+  const numMatch = token.match(/^([1-7])(m|M|dim|°)?$/);
+  if (!numMatch) return null;
+
+  const degree = Number(numMatch[1]);
+  const suffix = numMatch[2] || "";
+  let isMinor = DIATONIC_IS_MINOR[degree];
+  if (suffix === "m" || suffix === "dim" || suffix === "°") {
+    isMinor = true;
+  } else if (suffix === "M") {
+    isMinor = false;
+  }
+
+  return { degree, isMinor };
+}
+
+function parseProgression(str) {
+  return String(str || "")
+    .trim()
+    .split(/[-–—,/\s]+/)
+    .map(parseProgressionToken)
+    .filter(Boolean);
+}
+
+function updateProgressionGuide() {
+  if (!progressionGuideEl) return;
+
+  if (!currentProgression.length) {
+    progressionGuideEl.classList.add("hidden");
+    progressionGuideEl.innerHTML = "";
+    return;
+  }
+
+  const scale = MAJOR_SCALE[currentKeyName] || [];
+
+  progressionGuideEl.innerHTML = currentProgression
+    .map(({ degree, isMinor }, i) => {
+      const note = scale[degree - 1] || "";
+      const label = `${note}${isMinor ? "m" : ""}`;
+      const roman = isMinor
+        ? ROMAN_MAJOR[degree - 1].toLowerCase()
+        : ROMAN_MAJOR[degree - 1];
+      const gesture = gestureIconHtml(degree, isMinor);
+      const tilt = isMinor
+        ? `<span class="progression-tilt">tilt out</span>`
+        : "";
+      const activeClass = i === progressionIndex ? " active" : "";
+
+      return `
+        <div class="progression-row${activeClass}">
+          <span class="progression-gesture">${gesture}</span>
+          <span class="progression-label">${label} (${roman})</span>
+          ${tilt}
+        </div>
+      `;
+    })
+    .join("");
+
+  lastHighlightedProgressionIndex = progressionIndex;
+
+  progressionGuideEl.classList.remove("hidden");
+  progressionGuideEl.classList.toggle(
+    "input-open",
+    !progressionInputEl.classList.contains("hidden")
+  );
+}
+
+function openProgressionInput() {
+  progressionInputEl.classList.remove("hidden");
+  progressionGuideEl.classList.add("input-open");
+  if (!progressionInputEl.value.trim() && currentProgression.length) {
+    progressionInputEl.value = currentProgression
+      .map(({ degree, isMinor }) => `${degree}${isMinor ? "m" : ""}`)
+      .join("-");
+  }
+  progressionInputEl.focus();
+  progressionInputEl.select();
+}
+
+function closeProgressionInput() {
+  progressionInputEl.classList.add("hidden");
+  progressionGuideEl.classList.remove("input-open");
+}
+
+function applyProgressionFromInput() {
+  const parsed = parseProgression(progressionInputEl.value);
+  currentProgression = parsed;
+  progressionIndex = 0;
+  lastHighlightedProgressionIndex = -1;
+  updateProgressionGuide();
+  closeProgressionInput();
+  if (!parsed.length) {
+    progressionInputEl.value = "";
+  }
+}
+
+progressionAddButtonEl.addEventListener("click", () => {
+  if (progressionInputEl.classList.contains("hidden")) {
+    openProgressionInput();
+  } else {
+    applyProgressionFromInput();
+  }
+});
+
+progressionInputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    applyProgressionFromInput();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeProgressionInput();
+  }
+  e.stopPropagation();
+});
 
 // ---- Chord -> note frequencies ----
 // Semitone offset of each scale degree from the tonic, in a major scale.
@@ -432,6 +655,7 @@ let currentKeyName =
     keySelectEl.selectedOptions[0].dataset.note;
 
   updateGestureGuide();
+  updateProgressionGuide();
 
 });
 
@@ -441,6 +665,98 @@ let currentWaveform = toneSelectEl.value;
 toneSelectEl.addEventListener("change", () => {
   currentWaveform = toneSelectEl.value;
   synth.currentKey = null; // forces sound refresh
+});
+
+const playStyleSelectEl = document.getElementById("playStyleSelect");
+const bpmTapButtonEl = document.getElementById("bpmTapButton");
+const voicingLockButtonEl = document.getElementById("voicingLockButton");
+let currentPlayStyle = playStyleSelectEl.value;
+let voicingLocked = false;
+
+voicingLockButtonEl.addEventListener("click", () => {
+  voicingLocked = !voicingLocked;
+  voicingLockButtonEl.classList.toggle("locked", voicingLocked);
+  voicingLockButtonEl.textContent = voicingLocked ? "LOCKED -8ve" : "Lock -8ve";
+  voicingLockButtonEl.setAttribute(
+    "aria-pressed",
+    voicingLocked ? "true" : "false"
+  );
+  synth.currentKey = null;
+});
+
+const DEFAULT_ARP_BPM = 120;
+const TAP_RESET_MS = 2000;
+const TAP_HISTORY_MAX = 8;
+let tapTimes = [];
+let tappedBpm = null;
+
+function updateBpmTapLabel() {
+  const bpm = tappedBpm || DEFAULT_ARP_BPM;
+  bpmTapButtonEl.textContent =
+    currentPlayStyle === "arp" || tappedBpm ? `${bpm}` : "TAP";
+}
+
+function getArpIntervalMs() {
+  const bpm = tappedBpm || DEFAULT_ARP_BPM;
+  return 60000 / bpm;
+}
+
+playStyleSelectEl.addEventListener("change", () => {
+  currentPlayStyle = playStyleSelectEl.value;
+  updateBpmTapLabel();
+  synth.currentKey = null; // forces sound refresh
+  if (currentPlayStyle === "chord") {
+    synth.stopArpeggio();
+  }
+});
+
+function registerBpmTap() {
+  const now = performance.now();
+
+  if (tapTimes.length > 0 && now - tapTimes[tapTimes.length - 1] > TAP_RESET_MS) {
+    tapTimes = [];
+  }
+
+  tapTimes.push(now);
+  if (tapTimes.length > TAP_HISTORY_MAX) {
+    tapTimes.shift();
+  }
+
+  if (tapTimes.length >= 2) {
+    let total = 0;
+    for (let i = 1; i < tapTimes.length; i++) {
+      total += tapTimes[i] - tapTimes[i - 1];
+    }
+    const avgMs = total / (tapTimes.length - 1);
+    tappedBpm = Math.round(60000 / avgMs);
+    tappedBpm = Math.max(40, Math.min(240, tappedBpm));
+    updateBpmTapLabel();
+    synth.currentKey = null; // restart arp at new tempo
+
+    // If still on Chord, switch to arpeggio so tapping is immediately useful
+    if (currentPlayStyle === "chord") {
+      playStyleSelectEl.value = "arp";
+      currentPlayStyle = "arp";
+      updateBpmTapLabel();
+    }
+  }
+}
+
+bpmTapButtonEl.addEventListener("click", () => {
+  registerBpmTap();
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "Space" && e.key !== " ") return;
+  if (e.repeat) return;
+
+  const tag = e.target && e.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (progressionInputEl && !progressionInputEl.classList.contains("hidden")) return;
+
+  // Prevent page scroll and Space-activated button click (would double-count)
+  e.preventDefault();
+  registerBpmTap();
 });
 
 function getDegreeFreq(degree) {
@@ -583,6 +899,15 @@ class SynthEngine {
     this.masterGain = null;
     this.oscillators = [];
     this.currentKey = null;
+
+    // Arpeggio state
+    this.arpTimerId = null;
+    this.arpFreqs = [];
+    this.arpIntervalMs = 250;
+    this.arpIndex = 0;
+    this.arpOsc = null;
+    this.arpGain = null;
+    this.arpActive = false;
   }
 
   ensureContext() {
@@ -643,8 +968,15 @@ class SynthEngine {
     this.filter.Q.setTargetAtTime(targetQ, now, 0.04);
   }
 
+  _clearSolidOscillators() {
+    this.oscillators.forEach((osc) => { try { osc.stop(); } catch {} });
+    this.oscillators = [];
+  }
+
   playNotes(freqs) {
     if (!this.ctx || freqs.length === 0) return;
+
+    this.stopArpeggio();
 
     if (!hasPlayedFirstSound) {
       hasPlayedFirstSound = true;
@@ -654,7 +986,7 @@ class SynthEngine {
     const key = freqs.map((f) => f.toFixed(1)).join(",");
     if (key === this.currentKey) return;
 
-    this.oscillators.forEach((osc) => { try { osc.stop(); } catch {} });
+    this._clearSolidOscillators();
     this.oscillators = freqs.map((freq) => {
       const osc = this.ctx.createOscillator();
       osc.type = currentWaveform;
@@ -666,8 +998,92 @@ class SynthEngine {
     this.currentKey = key;
   }
 
+  _ensureArpVoice() {
+    if (this.arpOsc && this.arpGain) return;
+
+    this.arpGain = this.ctx.createGain();
+    this.arpGain.gain.value = 0;
+    this.arpGain.connect(this.waveShaper);
+
+    this.arpOsc = this.ctx.createOscillator();
+    this.arpOsc.type = currentWaveform;
+    this.arpOsc.frequency.value = 440;
+    this.arpOsc.connect(this.arpGain);
+    this.arpOsc.start();
+  }
+
+  _playArpStep() {
+    if (!this.arpActive || !this.ctx || this.arpFreqs.length === 0) return;
+
+    this._ensureArpVoice();
+
+    const freq = this.arpFreqs[this.arpIndex % this.arpFreqs.length];
+    this.arpIndex = (this.arpIndex + 1) % this.arpFreqs.length;
+
+    const now = this.ctx.currentTime;
+    const attack = 0.012;
+    const release = Math.min(0.08, (this.arpIntervalMs / 1000) * 0.35);
+    const noteEnd = now + this.arpIntervalMs / 1000;
+
+    this.arpOsc.type = currentWaveform;
+    this.arpOsc.frequency.setValueAtTime(freq, now);
+
+    this.arpGain.gain.cancelScheduledValues(now);
+    this.arpGain.gain.setValueAtTime(0, now);
+    this.arpGain.gain.linearRampToValueAtTime(1, now + attack);
+    this.arpGain.gain.setValueAtTime(1, Math.max(now + attack, noteEnd - release));
+    this.arpGain.gain.linearRampToValueAtTime(0, noteEnd);
+
+    this.arpTimerId = setTimeout(() => this._playArpStep(), this.arpIntervalMs);
+  }
+
+  startArpeggio(freqs, intervalMs) {
+    if (!this.ctx || !freqs || freqs.length === 0) return;
+
+    if (!hasPlayedFirstSound) {
+      hasPlayedFirstSound = true;
+      trackClarityEvent("first_sound");
+    }
+
+    const key = `arp:${intervalMs}:${freqs.map((f) => f.toFixed(1)).join(",")}`;
+    if (key === this.currentKey && this.arpActive) return;
+
+    this._clearSolidOscillators();
+    this.stopArpeggio();
+
+    this.arpFreqs = freqs.slice();
+    this.arpIntervalMs = intervalMs;
+    this.arpIndex = 0;
+    this.arpActive = true;
+    this.currentKey = key;
+
+    this._playArpStep();
+  }
+
+  stopArpeggio() {
+    if (this.arpTimerId != null) {
+      clearTimeout(this.arpTimerId);
+      this.arpTimerId = null;
+    }
+
+    this.arpActive = false;
+    this.arpFreqs = [];
+    this.arpIndex = 0;
+
+    if (this.arpOsc) {
+      try { this.arpOsc.stop(); } catch {}
+      try { this.arpOsc.disconnect(); } catch {}
+      this.arpOsc = null;
+    }
+    if (this.arpGain) {
+      try { this.arpGain.disconnect(); } catch {}
+      this.arpGain = null;
+    }
+  }
+
   stop() {
     this.setVolume(0);
+    this.stopArpeggio();
     this.oscillators.forEach((osc) => {
       try {
         osc.stop();
@@ -864,6 +1280,17 @@ if (cachedLeftLandmarks) {
   rawMode =
     leftTilt >= 0;
 
+  // With a progression guide, snap left-hand detection to the nearest
+  // step and prefer advancing to the next chord when you move that way.
+  if (rawChord && currentProgression.length) {
+    const snapped = snapToProgression(rawChord);
+    if (snapped) {
+      rawChord = snapped.chord;
+      rawMode = snapped.isMajorMode;
+    }
+    highlightProgressionStep();
+  }
+
 }
 
 
@@ -935,6 +1362,12 @@ if (rawChord) {
 
 }
 
+  // Locked voicing: root position + octave down (no right-hand pose required)
+  if (voicingLocked) {
+    qualityIndex = 1;
+    thumbDown = true;
+  }
+
 
   // ============================
   // 4. UI UPDATE
@@ -978,7 +1411,7 @@ if (rawChord) {
 
   qualityDisplayEl.textContent =
     activeLabel
-      ? `${activeLabel}${thumbDown ? " (-8ve)" : ""}`
+      ? `${activeLabel}${thumbDown ? " (-8ve)" : ""}${voicingLocked ? " 🔒" : ""}`
       : "--";
 
 
@@ -987,51 +1420,41 @@ if (rawChord) {
   // 5. AUDIO ENGINE
   // ============================
 
-  if (cachedRightLandmarks) {
+  const rightHandPresent = Boolean(cachedRightLandmarks);
+  const leftHandPresent = Boolean(cachedLeftLandmarks);
+  const canPlayVoicing =
+    currentChord && (qualityIndex >= 1 || voicingLocked);
 
-    const currentVolume =
-      getVolumeFromHeight(
-        cachedRightLandmarks
-      );
+  let currentVolume = 0;
+  let horizontalTilt = 0;
 
-
-    updateVolumeMeter(currentVolume);
-
-
-    const horizontalTilt =
-      getHandHorizontalTilt(
-        cachedRightLandmarks,
-        "Right"
-      );
-
-
-    const tiltPercentage =
-      Math.round(horizontalTilt * 100);
-
-
-    const targetEl =
-      document.getElementById(
-        "distortionDisplay"
-      );
-
-
-    if (targetEl) {
-
-      targetEl.textContent =
-        `Filter: ${tiltPercentage > 0 ? "+" : ""}${tiltPercentage}%`;
-
+  if (voicingLocked) {
+    // Left hand height drives volume while -8ve voicing is locked
+    if (leftHandPresent) {
+      currentVolume = getVolumeFromHeight(cachedLeftLandmarks);
     }
+    if (rightHandPresent) {
+      horizontalTilt = getHandHorizontalTilt(cachedRightLandmarks, "Right");
+    }
+  } else if (rightHandPresent) {
+    currentVolume = getVolumeFromHeight(cachedRightLandmarks);
+    horizontalTilt = getHandHorizontalTilt(cachedRightLandmarks, "Right");
+  }
 
+  updateVolumeMeter(currentVolume);
 
-    synth.updateFilterSweep(
-      horizontalTilt
-    );
+  const tiltPercentage = Math.round(horizontalTilt * 100);
+  const targetEl = document.getElementById("distortionDisplay");
+  if (targetEl) {
+    targetEl.textContent =
+      `Filter: ${tiltPercentage > 0 ? "+" : ""}${tiltPercentage}%`;
+  }
 
+  if (synth.ctx) {
+    synth.updateFilterSweep(horizontalTilt);
+  }
 
-    if (
-      currentChord &&
-      qualityIndex >= 1
-    ) {
+  if (canPlayVoicing && (rightHandPresent || voicingLocked)) {
 
       const chordTrackingKey =
         `${currentChord}-${isMajorMode ? "major" : "minor"}-${qualityIndex}-${thumbDown ? "low" : "normal"}`;
@@ -1064,21 +1487,22 @@ if (rawChord) {
       }
 
 
-      synth.playNotes(notes);
+      const arpInterval = getArpIntervalMs();
+
+      if (currentPlayStyle === "arp") {
+        synth.startArpeggio(notes, arpInterval);
+      } else {
+        synth.playNotes(notes);
+      }
+
       synth.setVolume(
         currentVolume
       );
 
 
-    } else {
-
-      synth.setVolume(0);
-
-    }
-
-
   } else {
 
+    synth.stopArpeggio();
     synth.setVolume(0);
 
   }
@@ -1089,21 +1513,10 @@ if (rawChord) {
   // 6. VISUAL ENERGY
   // ============================
 
-  const volume =
-    cachedRightLandmarks
-      ? getVolumeFromHeight(
-          cachedRightLandmarks
-        )
-      : 0;
+  const volume = currentVolume;
 
 
-  const tilt =
-    cachedRightLandmarks
-      ? getHandHorizontalTilt(
-          cachedRightLandmarks,
-          "Right"
-        )
-      : 0;
+  const tilt = horizontalTilt;
 
 
   drawEnergy(

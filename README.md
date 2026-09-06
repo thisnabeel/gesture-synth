@@ -10,6 +10,7 @@ https://www.instagram.com/p/DbH1BACxNCG/
 ## Features
 - Left hand controls chord selection
 - Right hand controls voicing and expression
+- Chord or arpeggio play styles with tap-tempo BPM
 - Real-time hand tracking with MediaPipe
 - Web Audio API synthesis
 
